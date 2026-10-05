@@ -1,0 +1,22 @@
+# 소규모 운영 프로필 (message/docker-small 인프라와 함께 사용)
+# 실행: ./gradlew bootRun --args='--spring.profiles.active=small'
+server:
+  port: 8080
+
+spring:
+  datasource:
+    source:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+    replica:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+  data:
+    redis:
+      cluster:
+        nodes:
+          - localhost:6380

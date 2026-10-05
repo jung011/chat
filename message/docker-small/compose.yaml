@@ -1,0 +1,134 @@
+# 소규모(약 100명) 운영용 축소 인프라 - 모든 구성요소 1대씩
+# 원본 확장 구성은 ../docker/compose.yaml 에 그대로 유지한다.
+# 애플리케이션은 호스트에서 small 프로필로 실행한다. (--spring.profiles.active=small)
+name: message-system-small
+
+services:
+  # MySQL 1대: 원본/레플리카/샤드1/샤드2 데이터소스가 모두 이 DB를 가리킨다.
+  mysql:
+    image: mysql:8.0.40
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-udev_user", "-pdev_password" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: messagesystem
+      MYSQL_USER: dev_user
+      MYSQL_PASSWORD: dev_password
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+
+  # Redis 1대: 클러스터 모드 단일 노드(전체 슬롯 0~16383 담당).
+  # 애플리케이션의 cluster 설정을 그대로 쓰기 위함이며, 확장 시 노드 추가 + reshard 만 하면 된다.
+  redis:
+    image: redis:7.4.1
+    restart: unless-stopped
+    ports:
+      - "6380:6380"
+    volumes:
+      - ./data/redis:/data
+    command:
+      - sh
+      - -c
+      - |
+        redis-server --port 6380 --cluster-enabled yes --cluster-config-file nodes.conf \
+          --cluster-announce-ip 127.0.0.1 --appendonly yes --dir /data &
+        until redis-cli -p 6380 ping > /dev/null 2>&1; do sleep 1; done
+        redis-cli -p 6380 cluster info | grep -q 'cluster_slots_assigned:16384' \
+          || redis-cli -p 6380 cluster addslotsrange 0 16383
+        trap 'redis-cli -p 6380 shutdown; exit 0' TERM INT
+        wait
+
+  # Kafka 1대 (KRaft, broker + controller)
+  kafka:
+    image: bitnamilegacy/kafka:3.9.0-debian-12-r13
+    restart: unless-stopped
+    ports:
+      - "19094:9094"
+    environment:
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_KRAFT_CLUSTER_ID=2ce827af-446c-456f-9bf9-c2de30f1d3b5
+      - KAFKA_CFG_PROCESS_ROLES=broker,controller
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - KAFKA_CFG_LISTENERS=INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      - KAFKA_CFG_ADVERTISED_LISTENERS=INTERNAL://kafka:9092,EXTERNAL://localhost:19094
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_CFG_MIN_INSYNC_REPLICAS=1
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false
+      - KAFKA_CFG_LOG_DIRS=/bitnami/kafka/data
+    volumes:
+      - ./data/kafka:/bitnami/kafka/data
+
+  # Consul 1대: client 가 Nginx 주소를 찾는 용도 (client 는 18500 실패 시 다음 노드를 시도하므로 1대로 동작)
+  consul1:
+    image: hashicorp/consul:1.21.1
+    restart: unless-stopped
+    ports:
+      - "18500:8500"
+    command: >
+      agent
+      -server
+      -ui
+      -bootstrap-expect=1
+      -node=consul1
+      -client=0.0.0.0
+      -dns-port=0
+      -data-dir=/consul/data
+    volumes:
+      - ./data/consul1:/consul/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8500/v1/status/leader"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Nginx 1대: /api/ -> auth(8080), /ws/ -> connection(8090)
+  nginx1:
+    image: nginx:1.27.5
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      - SERVICE_NAME=nginx
+      - INTERNAL_SERVICE_NAME=nginx1
+      - SERVICE_PORT=80
+    command: ["/bin/bash", "-c", "chmod +x /register_nginx.sh && /register_nginx.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./conf/nginx.conf:/etc/nginx/nginx.conf
+      - ../docker/register_nginx.sh:/register_nginx.sh
+    depends_on:
+      consul1:
+        condition: service_healthy
+
+  # 관리 도구는 필요할 때만 실행: docker compose --profile tools up -d
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    profiles: ["tools"]
+    ports:
+      - '18090:8080'
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=Local-Kafka-Single
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    depends_on:
+      - kafka
+
+  redis-insight:
+    image: redis/redisinsight:2.64.1
+    profiles: ["tools"]
+    ports:
+      - "15540:5540"
+    volumes:
+      - ./data/redis-insight:/data

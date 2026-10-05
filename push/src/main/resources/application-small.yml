@@ -1,0 +1,5 @@
+# 소규모 운영 프로필 (message/docker-small 인프라와 함께 사용)
+# 실행: ./gradlew bootRun --args='--spring.profiles.active=small'
+spring:
+  kafka:
+    bootstrap-servers: localhost:19094

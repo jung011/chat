@@ -1,0 +1,43 @@
+# 소규모 운영 프로필 (message/docker-small 인프라와 함께 사용)
+# 실행: ./gradlew bootRun --args='--spring.profiles.active=small'
+# 원본/레플리카/샤드 데이터소스를 모두 MySQL 1대로 모은다. 샤딩 코드(channelId % 2)는 그대로 동작하며
+# 데이터만 한 DB에 저장된다. 확장 시 jdbc-url 만 각 샤드 DB 로 다시 나누면 된다.
+spring:
+  datasource:
+    source:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+    replica:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+    source-message1:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+    replica-message1:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+    source-message2:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+    replica-message2:
+      hikari:
+        jdbc-url: jdbc:mysql://localhost:13306/messagesystem
+        minimum-idle: 2
+        maximum-pool-size: 10
+  data:
+    redis:
+      cluster:
+        nodes:
+          - localhost:6380
+  kafka:
+    bootstrap-servers: localhost:19094

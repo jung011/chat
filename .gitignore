@@ -70,3 +70,7 @@ application-secret.yml
 # Persistent volume mounts (조정 필요 시 주석 해제)
 # docker/data/
 # docker/volumes/
+
+# ===== Docker data volumes =====
+message/docker/data/
+message/docker-small/data/

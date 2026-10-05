@@ -1,0 +1,21 @@
+# 소규모 운영 프로필 (message/docker-small 인프라와 함께 사용)
+# 실행: ./gradlew bootRun --args='--spring.profiles.active=small'
+# 여러 대 띄울 때는 --server.port / --server.id 를 인스턴스마다 다르게 지정한다.
+server:
+  port: 8090
+  id: connection-8090
+
+spring:
+  data:
+    redis:
+      cluster:
+        nodes:
+          - localhost:6380
+  kafka:
+    bootstrap-servers: localhost:19094
+
+message-system:
+  kafka:
+    listeners:
+      listen:
+        replicationFactor: 1
